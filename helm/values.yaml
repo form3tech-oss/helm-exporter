@@ -12,8 +12,9 @@ serviceMonitor:
 replicaCount: 1
 
 image:
-  repository: sstarcher/helm-exporter
-  pullPolicy: Always
+  repository: form3tech/helm-exporter
+  tag: 0.5.6-2-g40ce6a2
+  pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 nameOverride: ""
