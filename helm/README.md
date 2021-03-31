@@ -42,18 +42,20 @@ The following table lists the configurable parameters of the helm-exporter chart
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Assign custom affinity rules for helm-exporter [https://kubernetes.io/docs/concepts/configuration/assign-pod-node/](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/) |
 | config.helmRegistries.overrideChartNames | object | `{}` | Provide a name to substitute for the full names of resources e.g. `mysql: stable/mysql` |
-| config.override[0].allowAllReleases | bool | `true` | This allows all semver versions, like release candidates or custom suffixes. |
-| config.override[0].charts | list | `[]` | Chart names for the override (chart) registry/repo url |
-| config.override[0].registry.url | string | `""` |  Url to the index file for a custom helm repo |
+| config.helmRegistries.override[0].allowAllReleases | bool | `true` | This allows all semver versions, like release candidates or custom suffixes. |
+| config.helmRegistries.override[0].charts | list | `[]` | Chart names for the override (chart) registry/repo url |
+| config.helmRegistries.override[0].registry.url | string | `""` |  Url to the index file for a custom helm repo |
 | fullnameOverride | string | `""` | Provide a name to substitute for the full names of resources |
 | image.pullPolicy | string | `"Always"` | Image pull policy for the webhook integration jobs |
 | image.repository | string | `"sstarcher/helm-exporter"` | Repository to use for the webhook integration jobs |
 | imagePullSecrets | list | `[]` | Reference to one or more secrets to be used when pulling images |
+| infoMetric | bool | `true` | Specifies whether to generate the info metric. |
 | ingress.annotations | object | `{}` |  Annotations for the helm-exporter |
 | ingress.enabled | bool | `false` | If true, helm-exporter Ingress will be created |
 | ingress.hosts[0].host | string | `"chart-example.local"` | Ingress hostname |
 | ingress.hosts[0].paths | list | `[]` | Ingress paths |
 | ingress.tls | list | `[]` | Ingress TLS configuration (YAML) |
+| latestChartVersion | bool | `true` | Specifies whether to fetch the latest chart versions from repositories. |
 | nameOverride | string | `""` | Provide a name in place of helm-exporter |
 | namespaces | string | `""` | Specifies which namespaces to query for helm 3 metrics.  Defaults to all |
 | nodeSelector | object | `{}` | helm-exporter node selector [https://kubernetes.io/docs/user-guide/node-selection/](https://kubernetes.io/docs/user-guide/node-selection/ ) |
@@ -72,6 +74,7 @@ The following table lists the configurable parameters of the helm-exporter chart
 | serviceMonitor.namespace | string | `nil` | The namespace where the Prometheus Operator is deployed |
 | serviceMonitor.additionalLabels |object | `{}` | Additional labels to add to the ServiceMonitor	|
 | serviceMonitor.scrapeTimeout | string | `nil` | Scrape Timeout when the metrics endpoint is scraped |
+| timestampMetric | bool | `true` | Specifies whether to generate the timestamps metric. |
 | tolerations | list | `[]` | Tolerations for use with node taints [https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/](https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/)|
 
 

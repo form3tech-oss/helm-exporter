@@ -1,5 +1,9 @@
 # Specifies which namespaces to query for helm 3 metrics.  Defaults to all
 namespaces: ""
+infoMetric: true
+timestampMetric: true
+latestChartVersion: true
+intervalDuration: 15s
 
 serviceMonitor:
   # Specifies whether a ServiceMonitor should be created
@@ -13,7 +17,7 @@ replicaCount: 1
 
 image:
   repository: form3tech/helm-exporter
-  tag: 0.5.6-2-g40ce6a2
+  tag: 0.7.2
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -34,6 +38,12 @@ podSecurityContext: {}
   # fsGroup: 2000
 
 podAnnotations: {}
+podLabels: {}
+
+env: []
+  # e.g. no_proxy environment variable:
+  # - name: no_proxy
+  #   value: localhost
 
 securityContext: {}
   # capabilities:
@@ -88,12 +98,12 @@ config:
 #      mysql: stable/test
 # If the helm charts are not stored on hub.helm.sh then a custom registry can be configured here.
 # Currently only index.yaml registry is supported (helm supports other registries as well)
-  override:
-    - registry:
-        url: "" # https://some.url/index.yaml # Url to the index file
-      charts: [] # Chart names
-#        - splunk
-#        - falco-eks-audit-bridge
-      allowAllReleases: true # This allows all semver versions, like release candidates or custom suffixes. Default is false
+    override:
+      - registry:
+          url: "" # https://some.url/index.yaml # Url to the index file
+        charts: [] # Chart names
+#         - splunk
+#         - falco-eks-audit-bridge
+        allowAllReleases: true # This allows all semver versions, like release candidates or custom suffixes. Default is false
 
 logLevel: error

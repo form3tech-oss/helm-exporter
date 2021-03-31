@@ -17,6 +17,9 @@ spec:
     metadata:
       labels:
         {{- include "helm-exporter.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -33,20 +36,36 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: {{ .Chart.Name }}
-          args:
-          - --log-level={{ .Values.logLevel }}
-          {{- if .Values.config }}
-          - --config=/config/config.yaml
-          {{- end }}
-          {{- if .Values.namespaces }}
-          - --namespaces={{ .Values.namespaces | quote }}
-          {{- end }}
-          command:
-          - helm-exporter
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --log-level={{ .Values.logLevel }}
+            {{- if .Values.config }}
+            - "-config"
+            - "/config/config.yaml"
+            {{- end }}
+            {{- if .Values.namespaces }}
+            - "-namespaces"
+            - {{ .Values.namespaces | quote }}
+            {{- end }}
+            {{- if not .Values.infoMetric }}
+            - "-info-metric=false"
+            {{- end }}
+            {{- if not .Values.timestampMetric }}
+            - "-timestamp-metric=false"
+            {{- end }}
+            {{- if not .Values.latestChartVersion }}
+            - "-latest-chart-version=false"
+            {{- end }}
+            {{- with .Values.intervalDuration }}
+            - "-interval-duration={{ . }}"
+            {{- end }}
+          {{- if .Values.env }}
+          env:
+{{ toYaml .Values.env | indent 12}}
+          {{- end }}
           ports:
             - name: http
               containerPort: 9571
