@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/sstarcher/helm-exporter/config"
 	"github.com/sstarcher/helm-exporter/registries"
@@ -28,7 +30,6 @@ import (
 
 	"github.com/facebookgo/flagenv"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -36,22 +37,21 @@ var (
 	settings = cli.New()
 	clients  = cmap.New()
 
-	stats = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "helm_chart_info",
-		Help: "Information on helm releases",
-	}, []string{
-		"chart",
-		"release",
-		"version",
-		"appVersion",
-		"updated",
-		"namespace",
-		"latestVersion",
-	})
+	mutex = sync.RWMutex{}
+
+	statsInfo      *prometheus.GaugeVec
+	statsTimestamp *prometheus.GaugeVec
 
 	namespaces = flag.String("namespaces", "", "namespaces to monitor.  Defaults to all")
 	logLevel   = flag.String("log-level", log.ErrorLevel.String(), "The log level to use")
 	configFile = flag.String("config", "", "Configfile to load for helm overwrite registries.  Default is empty")
+
+	intervalDuration = flag.String("interval-duration", "0", "Enable metrics gathering in background, each given duration. If not provided, the helm stats are computed synchronously.  Default is 0")
+
+	infoMetric      = flag.Bool("info-metric", true, "Generate info metric.  Defaults to true")
+	timestampMetric = flag.Bool("timestamp-metric", true, "Generate timestamps metric.  Defaults to true")
+
+	fetchLatest = flag.Bool("latest-chart-version", true, "Attempt to fetch the latest chart version from registries. Defaults to true")
 
 	statusCodeMap = map[string]float64{
 		"unknown":          0,
@@ -74,9 +74,48 @@ func initFlags() config.AppConfig {
 	return *cliFlags
 }
 
-func runStats(config config.Config) {
+func configureMetrics() (info *prometheus.GaugeVec, timestamp *prometheus.GaugeVec) {
+	if *infoMetric == true {
+		info = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "helm_chart_info",
+			Help: "Information on helm releases",
+		}, []string{
+			"chart",
+			"release",
+			"version",
+			"appVersion",
+			"updated",
+			"namespace",
+			"latestVersion",
+		})
+	}
 
-	stats.Reset()
+	if *timestampMetric == true {
+		timestamp = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "helm_chart_timestamp",
+			Help: "Timestamps of helm releases",
+		}, []string{
+			"chart",
+			"release",
+			"version",
+			"appVersion",
+			"updated",
+			"namespace",
+			"latestVersion",
+		})
+	}
+
+	return
+}
+
+func runStats(config config.Config, info *prometheus.GaugeVec, timestamp *prometheus.GaugeVec) {
+	if info != nil {
+		info.Reset()
+	}
+	if timestamp != nil {
+		timestamp.Reset()
+	}
+
 	for _, client := range clients.Items() {
 		list := action.NewList(client.(*action.Configuration))
 		items, err := list.Run()
@@ -90,25 +129,66 @@ func runStats(config config.Config) {
 			releaseName := item.Name
 			version := item.Chart.Metadata.Version
 			appVersion := item.Chart.AppVersion()
-			updated := strconv.FormatInt((item.Info.LastDeployed.Unix() * 1000), 10)
+			updated := item.Info.LastDeployed.Unix() * 1000
 			namespace := item.Namespace
 			status := statusCodeMap[item.Info.Status.String()]
-			latestVersion := getLatestChartVersionFromHelm(item.Chart.Name(), config.HelmRegistries)
-			//latestVersion := "3.1.8"
-			stats.WithLabelValues(chart, releaseName, version, appVersion, updated, namespace, latestVersion).Set(status)
+			latestVersion := ""
+
+			if *fetchLatest {
+				latestVersion = getLatestChartVersionFromHelm(item.Chart.Name(), config.HelmRegistries)
+			}
+
+			if info != nil {
+				info.WithLabelValues(chart, releaseName, version, appVersion, strconv.FormatInt(updated, 10), namespace, latestVersion).Set(status)
+			}
+			if timestamp != nil {
+				timestamp.WithLabelValues(chart, releaseName, version, appVersion, strconv.FormatInt(updated, 10), namespace, latestVersion).Set(float64(updated))
+			}
 		}
 	}
 }
 
 func getLatestChartVersionFromHelm(name string, helmRegistries registries.HelmRegistries) (version string) {
 	version = helmRegistries.GetLatestVersionFromHelm(name)
-	log.Warnf("last chart repo version is  %v", version)
+	log.WithField("chart", name).Debugf("last chart repo version is  %v", version)
 	return
 }
 
-func newHelmStatsHandler(config config.Config) http.HandlerFunc {
+func runStatsPeriodically(interval time.Duration, config config.Config) {
+	for {
+		info, timestamp := configureMetrics()
+		runStats(config, info, timestamp)
+		registerMetrics(prometheus.DefaultRegisterer, info, timestamp)
+		time.Sleep(interval)
+	}
+}
+
+func registerMetrics(register prometheus.Registerer, info, timestamp *prometheus.GaugeVec) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if statsInfo != nil {
+		register.Unregister(statsInfo)
+	}
+	register.MustRegister(info)
+	statsInfo = info
+
+	if statsTimestamp != nil {
+		register.Unregister(statsTimestamp)
+	}
+	register.MustRegister(timestamp)
+	statsTimestamp = timestamp
+}
+
+func newHelmStatsHandler(config config.Config, synchrone bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		runStats(config)
+		if synchrone {
+			runStats(config, statsInfo, statsTimestamp)
+		} else {
+			mutex.RLock()
+			defer mutex.RUnlock()
+		}
+
 		prometheusHandler.ServeHTTP(w, r)
 	}
 }
@@ -174,6 +254,11 @@ func main() {
 	}
 	log.SetLevel(l)
 
+	runIntervalDuration, err := time.ParseDuration(*intervalDuration)
+	if err != nil {
+		log.Fatalf("invalid duration `%s`: %s", *intervalDuration, err)
+	}
+
 	if namespaces == nil || *namespaces == "" {
 		go informer()
 	} else {
@@ -182,7 +267,14 @@ func main() {
 		}
 	}
 
-	http.HandleFunc("/metrics", newHelmStatsHandler(config))
+	if runIntervalDuration != 0 {
+		go runStatsPeriodically(runIntervalDuration, config)
+	} else {
+		info, timestamp := configureMetrics()
+		registerMetrics(prometheus.DefaultRegisterer, info, timestamp)
+	}
+
+	http.HandleFunc("/metrics", newHelmStatsHandler(config, runIntervalDuration == 0))
 	http.HandleFunc("/healthz", healthz)
 	log.Fatal(http.ListenAndServe(":9571", nil))
 }
